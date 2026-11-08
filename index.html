@@ -550,6 +550,7 @@ function renderPatient() {
       <div class="top"><strong>${esc(a.doctor)}</strong><span class="badge ${a.status}">${a.status}</span></div>
       <div class="meta">${fmt(a)} · ${esc(a.reason)}</div>
       <div class="meta">Code: <span class="code" style="font-size:.9rem">${code}</span></div>
+      ${(a.notes && a.notes.length) ? `<div style="margin-top:8px"><strong style="font-size:.85rem">Doctor's notes</strong>${a.notes.map(n => `<div class="note">${esc(n.text)}<div class="meta">${esc(n.time)}</div></div>`).join('')}</div>` : ''}
       <div class="actions">
         ${['Pending', 'Confirmed'].includes(a.status) ? `<button class="btn small bad" onclick="cancelAppt('${code}')">Cancel</button>` : ''}
         <button class="btn small grey" onclick="removeCode('${code}')">Hide</button>
