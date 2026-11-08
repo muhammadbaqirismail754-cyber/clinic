@@ -1,1 +1,477 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ismail Health Care</title>
+<style>
+  :root {
+    --bg: #f4f7fa; --card: #fff; --text: #1d2733; --muted: #6b7a8c;
+    --primary: #0f7b8a; --primary-d: #0b5f6b; --border: #dbe3ea;
+    --ok: #2e8b57; --warn: #d98e04; --bad: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--primary); color: #fff; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  header h1 { font-size: 1.1rem; margin: 0; flex: 1; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; }
+  nav button { background: rgba(255,255,255,.15); color: #fff; border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: .9rem; }
+  nav button.active { background: #fff; color: var(--primary-d); font-weight: 600; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  .view { display: none; }
+  .view.active { display: block; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  h2 { margin: 0 0 12px; font-size: 1.1rem; }
+  label { display: block; font-size: .85rem; color: var(--muted); margin: 10px 0 4px; }
+  input, select, textarea { width: 100%; padding: 9px; border: 1px solid var(--border); border-radius: 6px; font: inherit; background: #fff; }
+  textarea { min-height: 70px; resize: vertical; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+  .btn { background: var(--primary); color: #fff; border: 0; padding: 9px 16px; border-radius: 6px; cursor: pointer; font: inherit; margin-top: 12px; }
+  .btn:hover { background: var(--primary-d); }
+  .btn.small { padding: 5px 10px; margin: 0; font-size: .8rem; }
+  .btn.ok { background: var(--ok); } .btn.bad { background: var(--bad); } .btn.grey { background: #7a8896; }
+  .item { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .item .top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .meta { color: var(--muted); font-size: .85rem; margin-top: 4px; }
+  .badge { font-size: .75rem; padding: 2px 8px; border-radius: 99px; color: #fff; }
+  .Pending { background: var(--warn); } .Confirmed { background: var(--ok); }
+  .Cancelled { background: var(--bad); } .Completed { background: #5b6b7c; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .note { background: #f0f6f8; border-left: 3px solid var(--primary); padding: 6px 10px; margin-top: 6px; font-size: .9rem; border-radius: 4px; }
+  .empty { color: var(--muted); font-style: italic; }
+  .msg { color: var(--ok); font-size: .9rem; margin-top: 8px; min-height: 1.2em; }
+  .code { font-family: monospace; font-size: 1.2rem; font-weight: 700; letter-spacing: 2px; background: #eef7f8; padding: 2px 8px; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🏥 Ismail Health Care</h1>
+  <nav id="nav"></nav>
+</header>
+
+<main>
+  <!-- PATIENT VIEW -->
+  <section id="patient" class="view active">
+    <div class="card">
+      <h2>Book an appointment</h2>
+      <form id="bookForm">
+        <div class="row">
+          <div><label>Full name</label><input id="bName" required maxlength="80"></div>
+          <div><label>Phone</label><input id="bPhone" required maxlength="30"></div>
+        </div>
+        <div class="row">
+          <div><label>Doctor</label><select id="bDoctor"></select></div>
+          <div><label>Date</label><input type="date" id="bDate" required></div>
+        </div>
+        <div class="row">
+          <div><label>Time</label><input type="time" id="bTime" required></div>
+          <div><label>Reason for visit</label><input id="bReason" required maxlength="250"></div>
+        </div>
+        <button class="btn" type="submit">Book appointment</button>
+        <div class="msg" id="bMsg"></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>My appointments</h2>
+      <div class="row">
+        <div><label>Have a booking code? Enter it here</label>
+          <input id="codeInput" placeholder="Example: K7F29QXM3A" maxlength="10" style="text-transform:uppercase"></div>
+        <div style="align-self:end"><button class="btn small" id="addCodeBtn" type="button" style="padding:10px 16px">Show my appointment</button></div>
+      </div>
+      <div id="myAppts" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Ask for help</h2>
+      <form id="helpForm">
+        <div class="row">
+          <div><label>Your name</label><input id="hName" required maxlength="80"></div>
+          <div><label>Phone</label><input id="hPhone" required maxlength="30"></div>
+        </div>
+        <label>How can we help?</label>
+        <textarea id="hText" required maxlength="900"></textarea>
+        <button class="btn" type="submit">Send request</button>
+        <div class="msg" id="hMsg"></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- STAFF LOGIN -->
+  <section id="login" class="view">
+    <div class="card" style="max-width:420px;margin:0 auto">
+      <h2>Staff login</h2>
+      <form id="loginForm">
+        <label>Email</label><input type="email" id="lEmail" required autocomplete="username">
+        <label>Password</label><input type="password" id="lPass" required autocomplete="current-password">
+        <button class="btn" type="submit">Log in</button>
+        <div class="msg" id="lMsg" style="color:var(--bad)"></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- RECEPTIONIST VIEW -->
+  <section id="reception" class="view">
+    <div class="card">
+      <h2>Schedule</h2>
+      <div class="row">
+        <div><label>Filter by date</label><input type="date" id="fDate"></div>
+        <div><label>Filter by status</label>
+          <select id="fStatus">
+            <option value="">All</option><option>Pending</option><option>Confirmed</option>
+            <option>Completed</option><option>Cancelled</option>
+          </select>
+        </div>
+      </div>
+      <div id="schedule" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <h2>Help requests</h2>
+      <div id="helpList"></div>
+    </div>
+  </section>
+
+  <!-- DOCTOR VIEW -->
+  <section id="doctor" class="view">
+    <div class="card">
+      <h2 id="docTitle">My patients</h2>
+      <div id="docPatients"></div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {
+  getFirestore, collection, doc, getDoc, updateDoc, addDoc, arrayUnion,
+  onSnapshot, writeBatch, query, where
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import {
+  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+// Show any hidden error on screen so we can see what is wrong
+window.addEventListener('error', e => alert('Error: ' + e.message));
+window.addEventListener('unhandledrejection', e => alert('Error: ' + ((e.reason && e.reason.message) || e.reason)));
+
+// ---------- Firebase ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyD0NgfX3ROCzlhKZGSxXa6jtMA6kDyHl6k",
+  authDomain: "ismail-health-care.firebaseapp.com",
+  projectId: "ismail-health-care",
+  storageBucket: "ismail-health-care.firebasestorage.app",
+  messagingSenderId: "913007195424",
+  appId: "1:913007195424:web:9a716d2fd10e4c2978d345"
+};
+const fb = initializeApp(firebaseConfig);
+const db = getFirestore(fb);
+const auth = getAuth(fb);
+const apptCol = collection(db, "appointments");
+const helpCol = collection(db, "helpRequests");
+
+// ---------- Staff accounts (must match the emails in your Firestore rules) ----------
+const STAFF = {
+  "reception@ismailhealth.com": { role: "receptionist" },
+  "ahmed@ismailhealth.com":     { role: "doctor", doctor: "Dr. Ahmed (General)" },
+  "fatima@ismailhealth.com":    { role: "doctor", doctor: "Dr. Fatima (Pediatrics)" },
+  "khan@ismailhealth.com":      { role: "doctor", doctor: "Dr. Khan (Cardiology)" }
+};
+const DOCTORS = {
+  "Dr. Ahmed (General)": "ahmed",
+  "Dr. Fatima (Pediatrics)": "fatima",
+  "Dr. Khan (Cardiology)": "khan"
+};
+
+// ---------- Helpers ----------
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = a => `${a.date} at ${a.time}`;
+const sortAppts = list => [...list].sort((x, y) => (x.date + x.time).localeCompare(y.date + y.time));
+const slotId = a => `${DOCTORS[a.doctor] || 'x'}_${a.date}_${a.time}`;
+const slotRef = a => doc(db, "slots", slotId(a));
+function newCode() {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const r = crypto.getRandomValues(new Uint8Array(10));
+  return Array.from(r, n => chars[n % chars.length]).join("");
+}
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+$('bDoctor').innerHTML = Object.keys(DOCTORS).map(n => `<option>${n}</option>`).join('');
+$('bDate').min = new Date().toISOString().slice(0, 10);
+
+// ---------- Navigation ----------
+let me = null;          // logged-in staff member, or null
+let current = 'patient';
+
+function show(v) {
+  current = v;
+  document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === v));
+  renderNav(); render();
+}
+function renderNav() {
+  const items = [['patient', 'Patient']];
+  if (me) items.push(me.role === 'doctor' ? ['doctor', 'Doctor'] : ['reception', 'Receptionist']);
+  else items.push(['login', 'Staff login']);
+  $('nav').innerHTML = items.map(([v, l]) =>
+    `<button data-view="${v}" class="${v === current ? 'active' : ''}">${l}</button>`).join('')
+    + (me ? `<button data-logout="1">Log out</button>` : '');
+}
+$('nav').addEventListener('click', e => {
+  if (e.target.dataset.logout) { signOut(auth); return; }
+  if (e.target.dataset.view) show(e.target.dataset.view);
+});
+
+// ---------- Staff login ----------
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('lMsg').textContent = '';
+  try {
+    await signInWithEmailAndPassword(auth, $('lEmail').value.trim().toLowerCase(), $('lPass').value);
+    e.target.reset();
+  } catch {
+    $('lMsg').textContent = 'Wrong email or password.';
+  }
+});
+
+let appts = [], helps = [], unsubs = [];
+onAuthStateChanged(auth, user => {
+  unsubs.forEach(u => u()); unsubs = []; appts = []; helps = [];
+  const info = user && STAFF[(user.email || '').toLowerCase()];
+  if (user && !info) {
+    signOut(auth);
+    $('lMsg').textContent = 'This account does not have staff access.';
+    me = null;
+  } else {
+    me = info ? { ...info, email: user.email } : null;
+  }
+  if (me) {
+    const q = me.role === 'doctor' ? query(apptCol, where('doctor', '==', me.doctor)) : apptCol;
+    unsubs.push(onSnapshot(q, snap => {
+      appts = snap.docs.map(d => ({ notes: [], ...d.data(), id: d.id }));
+      render();
+    }, err => alert('Could not load appointments: ' + err.message)));
+    if (me.role === 'receptionist') {
+      unsubs.push(onSnapshot(helpCol, snap => {
+        helps = snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        render();
+      }, err => console.error(err)));
+    }
+    show(me.role === 'doctor' ? 'doctor' : 'reception');
+  } else {
+    show(['reception', 'doctor'].includes(current) ? 'patient' : current);
+  }
+});
+
+// ---------- Shared actions ----------
+async function cancelAppt(id) {
+  const a = appts.find(x => x.id === id) || myData[id];
+  if (!a) return;
+  try {
+    const b = writeBatch(db);
+    b.update(doc(db, "appointments", id), { status: 'Cancelled' });
+    b.delete(slotRef(a));   // free the time slot
+    await b.commit();
+  } catch (err) { alert('Could not cancel: ' + err.message); }
+}
+async function setStatus(id, status) {
+  try { await updateDoc(doc(db, "appointments", id), { status }); }
+  catch (err) { alert('Update failed: ' + err.message); }
+}
+
+// ---------- Patient ----------
+$('bookForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target;
+  const id = newCode();
+  const a = {
+    name: $('bName').value.trim(), phone: $('bPhone').value.trim(),
+    doctor: $('bDoctor').value, date: $('bDate').value, time: $('bTime').value,
+    reason: $('bReason').value.trim(), status: 'Pending', notes: [], createdAt: Date.now()
+  };
+  $('bMsg').style.color = 'var(--muted)';
+  $('bMsg').textContent = 'Saving…';
+  try {
+    const b = writeBatch(db);
+    b.set(doc(db, "appointments", id), a);
+    b.set(slotRef(a), { apptId: id });   // fails if the slot is already taken
+    await Promise.race([
+      b.commit(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000))
+    ]);
+  } catch (err) {
+    $('bMsg').style.color = 'var(--bad)';
+    $('bMsg').textContent = err.message === 'timeout'
+      ? 'No answer from the database after 15 seconds. Check your internet and try again.'
+      : err.code === 'permission-denied'
+        ? 'Not allowed (permission denied). Either that time is taken, or the database rules need checking.'
+        : 'Could not save: ' + err.message;
+    return;
+  }
+  addCode(id);
+  $('bMsg').style.color = 'var(--ok)';
+  $('bMsg').innerHTML = `Request sent! Your booking code is <span class="code">${id}</span>. Save it (take a screenshot). You need it to see or cancel your appointment.`;
+  form.reset();
+});
+
+// Patients keep their booking codes on their own device
+let myCodes = store.get('myCodes', []);
+const myData = {};
+const codeUnsubs = {};
+function watchCode(code) {
+  if (codeUnsubs[code]) return;
+  codeUnsubs[code] = onSnapshot(doc(db, "appointments", code),
+    s => { myData[code] = s.exists() ? { ...s.data(), id: s.id } : null; renderPatient(); },
+    () => { myData[code] = null; renderPatient(); });
+}
+function addCode(code) {
+  if (!myCodes.includes(code)) { myCodes.push(code); store.set('myCodes', myCodes); }
+  watchCode(code);
+}
+function removeCode(code) {
+  if (codeUnsubs[code]) { codeUnsubs[code](); delete codeUnsubs[code]; }
+  delete myData[code];
+  myCodes = myCodes.filter(c => c !== code); store.set('myCodes', myCodes);
+  renderPatient();
+}
+myCodes.forEach(watchCode);
+
+$('addCodeBtn').addEventListener('click', () => {
+  const c = $('codeInput').value.trim().toUpperCase();
+  if (c.length === 10) { addCode(c); $('codeInput').value = ''; }
+  else alert('A booking code has 10 letters and numbers.');
+});
+
+function renderPatient() {
+  const box = $('myAppts');
+  if (!myCodes.length) { box.innerHTML = '<div class="empty">Book an appointment, or enter your booking code, to see it here.</div>'; return; }
+  box.innerHTML = myCodes.map(code => {
+    const a = myData[code];
+    if (a === undefined) return `<div class="item"><div class="meta">Loading ${code}…</div></div>`;
+    if (a === null) return `<div class="item"><div class="meta">No appointment found for code ${esc(code)}.</div>
+      <div class="actions"><button class="btn small grey" onclick="removeCode('${code}')">Remove</button></div></div>`;
+    return `<div class="item">
+      <div class="top"><strong>${esc(a.doctor)}</strong><span class="badge ${a.status}">${a.status}</span></div>
+      <div class="meta">${fmt(a)} · ${esc(a.reason)}</div>
+      <div class="meta">Code: <span class="code" style="font-size:.9rem">${code}</span></div>
+      <div class="actions">
+        ${['Pending', 'Confirmed'].includes(a.status) ? `<button class="btn small bad" onclick="cancelAppt('${code}')">Cancel</button>` : ''}
+        <button class="btn small grey" onclick="removeCode('${code}')">Hide</button>
+      </div></div>`;
+  }).join('');
+}
+
+$('helpForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target;
+  try {
+    await addDoc(helpCol, {
+      name: $('hName').value.trim(), phone: $('hPhone').value.trim(), text: $('hText').value.trim(),
+      resolved: false, time: new Date().toLocaleString(), createdAt: Date.now()
+    });
+    form.reset();
+    $('hMsg').style.color = 'var(--ok)';
+    $('hMsg').textContent = 'Your request was sent. We will contact you soon.';
+  } catch (err) {
+    $('hMsg').style.color = 'var(--bad)';
+    $('hMsg').textContent = 'Could not send: ' + err.message;
+  }
+});
+
+// ---------- Receptionist ----------
+$('fDate').addEventListener('input', renderReception);
+$('fStatus').addEventListener('input', renderReception);
+
+async function reschedule(id) {
+  const a = appts.find(x => x.id === id); if (!a) return;
+  const d = prompt('New date (YYYY-MM-DD):', a.date); if (!d) return;
+  const t = prompt('New time (HH:MM):', a.time); if (!t) return;
+  const updated = { ...a, date: d, time: t };
+  try {
+    if ((await getDoc(slotRef(updated))).exists()) { alert('That slot is already taken.'); return; }
+    const b = writeBatch(db);
+    b.update(doc(db, "appointments", id), { date: d, time: t });
+    b.delete(slotRef(a));
+    b.set(slotRef(updated), { apptId: id });
+    await b.commit();
+  } catch (err) { alert('Could not reschedule: ' + err.message); }
+}
+
+function renderReception() {
+  if (!me || me.role !== 'receptionist') return;
+  const fd = $('fDate').value, fs = $('fStatus').value;
+  const list = sortAppts(appts.filter(a => (!fd || a.date === fd) && (!fs || a.status === fs)));
+  $('schedule').innerHTML = list.length ? list.map(a => `
+    <div class="item">
+      <div class="top"><strong>${esc(a.name)}</strong><span class="badge ${a.status}">${a.status}</span></div>
+      <div class="meta">${fmt(a)} · ${esc(a.doctor)} · ${esc(a.phone)}</div>
+      <div class="meta">Reason: ${esc(a.reason)}</div>
+      <div class="actions">
+        ${a.status === 'Pending' ? `<button class="btn small ok" onclick="setStatus('${a.id}','Confirmed')">Confirm</button>` : ''}
+        ${['Pending', 'Confirmed'].includes(a.status) ? `
+          <button class="btn small grey" onclick="reschedule('${a.id}')">Reschedule</button>
+          <button class="btn small bad" onclick="cancelAppt('${a.id}')">Cancel</button>` : ''}
+      </div>
+    </div>`).join('') : '<div class="empty">No appointments match.</div>';
+
+  $('helpList').innerHTML = helps.length ? helps.map(h => `
+    <div class="item">
+      <div class="top"><strong>${esc(h.name)}</strong>
+        <span class="badge ${h.resolved ? 'Confirmed' : 'Pending'}">${h.resolved ? 'Resolved' : 'Open'}</span></div>
+      <div class="meta">${esc(h.phone)} · ${esc(h.time)}</div>
+      <div style="margin-top:6px">${esc(h.text)}</div>
+      ${h.resolved ? '' : `<div class="actions"><button class="btn small ok" onclick="resolveHelp('${h.id}')">Mark resolved</button></div>`}
+    </div>`).join('') : '<div class="empty">No help requests.</div>';
+}
+async function resolveHelp(id) {
+  try { await updateDoc(doc(db, "helpRequests", id), { resolved: true }); }
+  catch (err) { alert('Update failed: ' + err.message); }
+}
+
+// ---------- Doctor ----------
+async function addNote(id) {
+  const ta = document.getElementById('note-' + id);
+  const text = ta.value.trim(); if (!text) return;
+  try {
+    await updateDoc(doc(db, "appointments", id), { notes: arrayUnion({ text, time: new Date().toLocaleString() }) });
+  } catch (err) { alert('Could not save note: ' + err.message); }
+}
+const complete = id => setStatus(id, 'Completed');
+
+function renderDoctor() {
+  if (!me || me.role !== 'doctor') return;
+  $('docTitle').textContent = `Patients of ${me.doctor}`;
+  const list = sortAppts(appts.filter(a => a.status !== 'Cancelled'));
+  $('docPatients').innerHTML = list.length ? list.map(a => `
+    <div class="item">
+      <div class="top"><strong>${esc(a.name)}</strong><span class="badge ${a.status}">${a.status}</span></div>
+      <div class="meta">${fmt(a)} · ${esc(a.phone)}</div>
+      <div class="meta">Reason: ${esc(a.reason)}</div>
+      ${a.notes.map(n => `<div class="note">${esc(n.text)}<div class="meta">${esc(n.time)}</div></div>`).join('')}
+      <textarea id="note-${a.id}" placeholder="Add a note…" style="margin-top:8px"></textarea>
+      <div class="actions">
+        <button class="btn small" onclick="addNote('${a.id}')">Save note</button>
+        ${a.status !== 'Completed' ? `<button class="btn small ok" onclick="complete('${a.id}')">Mark completed</button>` : ''}
+      </div>
+    </div>`).join('') : '<div class="empty">No patients yet.</div>';
+}
+
+// ---------- Render ----------
+function render() {
+  renderPatient(); renderReception();
+  // don't wipe a note the doctor is typing when another update arrives
+  if (!document.activeElement || !document.activeElement.id.startsWith('note-')) renderDoctor();
+}
+
+// Module scripts aren't global, so expose handlers used by inline onclick attributes
+Object.assign(window, { cancelAppt, setStatus, reschedule, resolveHelp, addNote, complete, removeCode });
+renderNav();
+render();
+</script>
+</body>
+</html>
