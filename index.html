@@ -174,14 +174,14 @@ const helpCol = collection(db, "helpRequests");
 // ---------- Staff accounts (must match the emails in your Firestore rules) ----------
 const STAFF = {
   "reception@ismailhealth.com": { role: "receptionist" },
-  "ahmed@ismailhealth.com":     { role: "doctor", doctor: "Dr. Ahmed (General)" },
-  "fatima@ismailhealth.com":    { role: "doctor", doctor: "Dr. Fatima (Pediatrics)" },
-  "khan@ismailhealth.com":      { role: "doctor", doctor: "Dr. Khan (Cardiology)" }
+  "farrukh@ismailhealth.com":   { role: "doctor", doctor: "Dr. Farrukh Javed (MBBS, General Physician and Surgeon)" },
+  "ahmad@ismailhealth.com":     { role: "doctor", doctor: "Dr. Muhammad Ahmad Raza Khan (BDS, Dentist)" },
+  "baqir@ismailhealth.com":     { role: "doctor", doctor: "Dr. Muhammad Baqir Ismail (MBBS, General Physician and Surgeon)" }
 };
 const DOCTORS = {
-  "Dr. Ahmed (General)": "ahmed",
-  "Dr. Fatima (Pediatrics)": "fatima",
-  "Dr. Khan (Cardiology)": "khan"
+  "Dr. Farrukh Javed (MBBS, General Physician and Surgeon)": "farrukh",
+  "Dr. Muhammad Ahmad Raza Khan (BDS, Dentist)": "ahmad",
+  "Dr. Muhammad Baqir Ismail (MBBS, General Physician and Surgeon)": "baqir"
 };
 
 // ---------- Helpers ----------
