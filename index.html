@@ -21,6 +21,7 @@
   nav { display: flex; gap: 6px; flex-wrap: wrap; }
   nav button { background: rgba(255,255,255,.15); color: #fff; border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: .9rem; }
   nav button.active { background: #fff; color: var(--primary-d); font-weight: 600; }
+  #net { display: none; background: var(--warn); color: #fff; text-align: center; padding: 6px 10px; font-size: .85rem; }
   main { max-width: 900px; margin: 0 auto; padding: 16px; }
   .view { display: none; }
   .view.active { display: block; }
@@ -54,6 +55,7 @@
   <h1>🏥 Ismail Health Care</h1>
   <nav id="nav"></nav>
 </header>
+<div id="net">You are offline. Your changes are saved on this phone and will be sent when the internet comes back.</div>
 
 <main>
   <!-- PATIENT VIEW -->
@@ -66,7 +68,7 @@
           <div><label>Phone</label><input id="bPhone" required maxlength="30"></div>
         </div>
         <div class="row">
-          <div><label>Doctor</label><select id="bDoctor"></select></div>
+          <div><label>Doctor</label><select id="bDoctor" required><option value="">Loading doctors…</option></select></div>
           <div><label>Date</label><input type="date" id="bDate" required></div>
         </div>
         <div class="row">
@@ -111,8 +113,48 @@
         <label>Email</label><input type="email" id="lEmail" required autocomplete="username">
         <label>Password</label><input type="password" id="lPass" required autocomplete="current-password">
         <button class="btn" type="submit">Log in</button>
+        <button class="btn grey" type="button" id="forgotBtn" style="margin-left:6px">Forgot password?</button>
         <div class="msg" id="lMsg" style="color:var(--bad)"></div>
       </form>
+    </div>
+  </section>
+
+  <!-- FIRST-TIME SETUP -->
+  <section id="setup" class="view">
+    <div class="card" style="max-width:420px;margin:0 auto">
+      <h2>No staff access yet</h2>
+      <p class="meta" id="setupInfo"></p>
+      <form id="setupForm">
+        <label>Owner setup code (first time only)</label>
+        <input id="sCode" autocomplete="off" autocapitalize="characters">
+        <button class="btn" type="submit">Become owner</button>
+        <div class="msg" id="sMsg" style="color:var(--bad)"></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ADMIN: MANAGE STAFF -->
+  <section id="admin" class="view">
+    <div class="card">
+      <h2>Add staff</h2>
+      <form id="addStaffForm">
+        <div class="row">
+          <div><label>Role</label>
+            <select id="aRole"><option value="doctor">Doctor</option><option value="receptionist">Receptionist</option></select></div>
+          <div><label>Name (for doctors: name and speciality)</label>
+            <input id="aName" required maxlength="100" placeholder="Dr. Ali Khan (MBBS, Dentist)"></div>
+        </div>
+        <div class="row">
+          <div><label>Login email</label><input type="email" id="aEmail" required></div>
+          <div><label>Password (only for a new login, 6 or more characters)</label><input type="text" id="aPass" autocomplete="off"></div>
+        </div>
+        <button class="btn" type="submit">Add</button>
+        <div class="msg" id="aMsg"></div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Staff</h2>
+      <div id="staffList"></div>
     </div>
   </section>
 
@@ -144,16 +186,30 @@
       <div id="docPatients"></div>
     </div>
   </section>
+
+  <!-- CHANGE MY PASSWORD -->
+  <section id="account" class="view">
+    <div class="card" style="max-width:420px;margin:0 auto">
+      <h2>Change my password</h2>
+      <form id="pwForm">
+        <label>Current password</label><input type="password" id="pOld" required autocomplete="current-password">
+        <label>New password (6 or more characters)</label><input type="password" id="pNew" required minlength="6" autocomplete="new-password">
+        <button class="btn" type="submit">Change password</button>
+        <div class="msg" id="pMsg"></div>
+      </form>
+    </div>
+  </section>
 </main>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {
-  getFirestore, collection, doc, getDoc, updateDoc, addDoc, arrayUnion,
-  onSnapshot, writeBatch, query, where
+  initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, doc, getDoc, updateDoc, addDoc, arrayUnion, onSnapshot, writeBatch, query, where
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import {
-  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword,
+  sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 
 // ---------- Firebase ----------
@@ -166,31 +222,22 @@ const firebaseConfig = {
   appId: "1:913007195424:web:9a716d2fd10e4c2978d345"
 };
 const fb = initializeApp(firebaseConfig);
-const db = getFirestore(fb);
+let db;
+try {   // keeps data on the phone so the app works offline
+  db = initializeFirestore(fb, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+} catch (e) { db = getFirestore(fb); }
 const auth = getAuth(fb);
+const auth2 = getAuth(initializeApp(firebaseConfig, 'second'));   // used only to create new logins
 const apptCol = collection(db, "appointments");
 const helpCol = collection(db, "helpRequests");
-
-// ---------- Staff accounts (must match the emails in your Firestore rules) ----------
-const STAFF = {
-  "reception@ismailhealth.com": { role: "receptionist" },
-  "farrukh@ismailhealth.com":   { role: "doctor", doctor: "Dr. Farrukh Javed (MBBS, General Physician and Surgeon)" },
-  "ahmad@ismailhealth.com":     { role: "doctor", doctor: "Dr. Muhammad Ahmad Raza Khan (BDS, Dentist)" },
-  "baqir@ismailhealth.com":     { role: "doctor", doctor: "Dr. Muhammad Baqir Ismail (MBBS, General Physician and Surgeon)" }
-};
-const DOCTORS = {
-  "Dr. Farrukh Javed (MBBS, General Physician and Surgeon)": "farrukh",
-  "Dr. Muhammad Ahmad Raza Khan (BDS, Dentist)": "ahmad",
-  "Dr. Muhammad Baqir Ismail (MBBS, General Physician and Surgeon)": "baqir"
-};
 
 // ---------- Helpers ----------
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = a => `${a.date} at ${a.time}`;
 const sortAppts = list => [...list].sort((x, y) => (x.date + x.time).localeCompare(y.date + y.time));
-const slotId = a => `${DOCTORS[a.doctor] || 'x'}_${a.date}_${a.time}`;
-const slotRef = a => doc(db, "slots", slotId(a));
+const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+const slotRef = a => doc(db, "slots", `${slug(a.doctor)}_${a.date}_${a.time}`);
 function newCode() {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   const r = crypto.getRandomValues(new Uint8Array(10));
@@ -200,70 +247,213 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 };
+function say(el, text, good) { el.style.color = good ? 'var(--ok)' : 'var(--bad)'; el.textContent = text; }
 
-$('bDoctor').innerHTML = Object.keys(DOCTORS).map(n => `<option>${n}</option>`).join('');
 $('bDate').min = new Date().toISOString().slice(0, 10);
 
-// ---------- Navigation ----------
-let me = null;          // logged-in staff member, or null
-let current = 'patient';
+// Offline banner
+function net() { $('net').style.display = navigator.onLine ? 'none' : 'block'; }
+addEventListener('online', net); addEventListener('offline', net); net();
 
+// ---------- Doctor list (public, comes from the database) ----------
+onSnapshot(collection(db, "doctors"), snap => {
+  const names = snap.docs.map(d => d.data().name).filter(Boolean).sort();
+  const cur = $('bDoctor').value;
+  $('bDoctor').innerHTML = names.length
+    ? names.map(n => `<option>${esc(n)}</option>`).join('')
+    : '<option value="">No doctors added yet</option>';
+  if (names.includes(cur)) $('bDoctor').value = cur;
+}, () => {});
+
+// ---------- Navigation ----------
+let user = null, me = null, current = 'patient';
+const HOME = { admin: 'admin', receptionist: 'reception', doctor: 'doctor' };
+
+function allowed(v) {
+  if (v === 'patient' || v === 'login') return true;
+  if (!user) return false;
+  if (v === 'setup') return !me;
+  if (!me) return false;
+  if (v === 'account') return true;
+  if (v === 'admin') return me.role === 'admin';
+  if (v === 'reception') return me.role === 'admin' || me.role === 'receptionist';
+  if (v === 'doctor') return me.role === 'doctor';
+  return false;
+}
 function show(v) {
+  if (!allowed(v)) v = 'patient';
   current = v;
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === v));
   renderNav(); render();
 }
 function renderNav() {
   const items = [['patient', 'Patient']];
-  if (me) items.push(me.role === 'doctor' ? ['doctor', 'Doctor'] : ['reception', 'Receptionist']);
-  else items.push(['login', 'Staff login']);
+  if (!user) items.push(['login', 'Staff login']);
+  else if (!me) items.push(['setup', 'Setup']);
+  else {
+    if (me.role === 'admin') items.push(['admin', 'Staff'], ['reception', 'Schedule']);
+    if (me.role === 'receptionist') items.push(['reception', 'Receptionist']);
+    if (me.role === 'doctor') items.push(['doctor', 'Doctor']);
+    items.push(['account', 'Password']);
+  }
   $('nav').innerHTML = items.map(([v, l]) =>
     `<button data-view="${v}" class="${v === current ? 'active' : ''}">${l}</button>`).join('')
-    + (me ? `<button data-logout="1">Log out</button>` : '');
+    + (user ? `<button data-logout="1">Log out</button>` : '');
 }
 $('nav').addEventListener('click', e => {
   if (e.target.dataset.logout) { signOut(auth); return; }
   if (e.target.dataset.view) show(e.target.dataset.view);
 });
 
-// ---------- Staff login ----------
+// ---------- Login ----------
 $('loginForm').addEventListener('submit', async e => {
   e.preventDefault();
   $('lMsg').textContent = '';
   try {
     await signInWithEmailAndPassword(auth, $('lEmail').value.trim().toLowerCase(), $('lPass').value);
     e.target.reset();
-  } catch {
-    $('lMsg').textContent = 'Wrong email or password.';
+  } catch { say($('lMsg'), 'Wrong email or password.', false); }
+});
+$('forgotBtn').addEventListener('click', async () => {
+  const em = $('lEmail').value.trim().toLowerCase();
+  if (!em) { say($('lMsg'), 'Type your email first, then tap Forgot password.', false); return; }
+  try {
+    await sendPasswordResetEmail(auth, em);
+    say($('lMsg'), 'If this email has a login, a reset link was sent. Check your inbox and spam folder.', true);
+  } catch { say($('lMsg'), 'Could not send. Check the email and your internet.', false); }
+});
+
+// ---------- Who is logged in ----------
+let appts = [], helps = [], staffList = [], unsubs = [];
+function stop() { unsubs.forEach(u => u()); unsubs = []; appts = []; helps = []; staffList = []; }
+
+async function loadMe(email) {
+  const key = 'staff_' + email;
+  try {
+    const s = await getDoc(doc(db, "staff", email));
+    const data = s.exists() ? s.data() : null;
+    store.set(key, data);
+    return data;
+  } catch (err) {
+    if (err.code === 'permission-denied') return null;
+    return store.get(key, null);   // offline: use what we saved last time
+  }
+}
+function start() {
+  const q = me.role === 'doctor' ? query(apptCol, where('doctor', '==', me.doctor)) : apptCol;
+  unsubs.push(onSnapshot(q, snap => {
+    appts = snap.docs.map(d => ({ notes: [], ...d.data(), id: d.id }));
+    render();
+  }, err => alert('Could not load appointments: ' + err.message)));
+  if (me.role !== 'doctor') {
+    unsubs.push(onSnapshot(helpCol, snap => {
+      helps = snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      render();
+    }, err => console.error(err)));
+  }
+  if (me.role === 'admin') {
+    unsubs.push(onSnapshot(collection(db, "staff"), snap => {
+      staffList = snap.docs.map(d => ({ ...d.data(), email: d.id }));
+      render();
+    }, err => console.error(err)));
+  }
+}
+async function enter() {
+  stop();
+  me = user ? await loadMe(user.email.toLowerCase()) : null;
+  if (me) start();
+  show(!user ? 'patient' : me ? HOME[me.role] : 'setup');
+}
+onAuthStateChanged(auth, u => { user = u; enter(); });
+
+// First-time owner setup (needs the one-time setup code)
+$('setupForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('sMsg').textContent = '';
+  const key = $('sCode').value.trim().toUpperCase(), email = user.email.toLowerCase();
+  try {
+    const b = writeBatch(db);
+    b.set(doc(db, "config", "setup"), { setupKey: key, by: email, at: Date.now() });
+    b.set(doc(db, "staff", email), { role: 'admin', name: 'Owner', setupKey: key });
+    await b.commit();
+    $('sCode').value = '';
+    await enter();
+  } catch { say($('sMsg'), 'Wrong setup code, or setup was already done. Ask the owner to add your email under Staff.', false); }
+});
+
+// ---------- Change my password ----------
+$('pwForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target, m = $('pMsg');
+  try {
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, $('pOld').value));
+    await updatePassword(user, $('pNew').value);
+    form.reset();
+    say(m, 'Password changed.', true);
+  } catch (err) {
+    say(m, ['auth/wrong-password', 'auth/invalid-credential'].includes(err.code)
+      ? 'Your current password is wrong.' : 'Could not change password: ' + err.message, false);
   }
 });
 
-let appts = [], helps = [], unsubs = [];
-onAuthStateChanged(auth, user => {
-  unsubs.forEach(u => u()); unsubs = []; appts = []; helps = [];
-  const info = user && STAFF[(user.email || '').toLowerCase()];
-  if (user && !info) {
-    signOut(auth);
-    $('lMsg').textContent = 'This account does not have staff access.';
-    me = null;
-  } else {
-    me = info ? { ...info, email: user.email } : null;
-  }
-  if (me) {
-    const q = me.role === 'doctor' ? query(apptCol, where('doctor', '==', me.doctor)) : apptCol;
-    unsubs.push(onSnapshot(q, snap => {
-      appts = snap.docs.map(d => ({ notes: [], ...d.data(), id: d.id }));
-      render();
-    }, err => alert('Could not load appointments: ' + err.message)));
-    if (me.role === 'receptionist') {
-      unsubs.push(onSnapshot(helpCol, snap => {
-        helps = snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-        render();
-      }, err => console.error(err)));
+// ---------- Admin: add and remove staff ----------
+$('addStaffForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target, m = $('aMsg');
+  const role = $('aRole').value, name = $('aName').value.trim();
+  const email = $('aEmail').value.trim().toLowerCase(), pw = $('aPass').value;
+  if (pw && pw.length < 6) { say(m, 'The password needs 6 or more characters.', false); return; }
+  say(m, 'Saving…', true);
+  let note = '';
+  try {
+    if (pw) {
+      try { await createUserWithEmailAndPassword(auth2, email, pw); }
+      catch (err) {
+        if (err.code !== 'auth/email-already-in-use') throw err;
+        note = ' (This email already had a login, so its old password still works.)';
+      } finally { try { await signOut(auth2); } catch {} }
     }
-    show(me.role === 'doctor' ? 'doctor' : 'reception');
-  } else {
-    show(['reception', 'doctor'].includes(current) ? 'patient' : current);
+    const b = writeBatch(db);
+    b.set(doc(db, "staff", email), role === 'doctor' ? { role, name, doctor: name } : { role, name });
+    if (role === 'doctor') b.set(doc(db, "doctors", slug(name)), { name });
+    await b.commit();
+    form.reset();
+    say(m, name + ' was added.' + note, true);
+  } catch (err) { say(m, 'Could not add: ' + err.message, false); }
+});
+
+function renderAdmin() {
+  if (!me || me.role !== 'admin') return;
+  const order = { admin: 0, receptionist: 1, doctor: 2 };
+  const mine = user.email.toLowerCase();
+  const list = [...staffList].sort((a, b) => ((order[a.role] ?? 9) - (order[b.role] ?? 9)) || a.email.localeCompare(b.email));
+  $('staffList').innerHTML = list.length ? list.map(s => `
+    <div class="item">
+      <div class="top"><strong>${esc(s.name || s.email)}</strong><span class="badge Completed">${esc(s.role)}</span></div>
+      <div class="meta">${esc(s.email)}</div>
+      <div class="actions">
+        <button class="btn small grey" data-act="reset" data-email="${esc(s.email)}">Send password reset email</button>
+        ${s.email === mine ? '' : `<button class="btn small bad" data-act="remove" data-email="${esc(s.email)}">Remove</button>`}
+      </div>
+    </div>`).join('') : '<div class="empty">No staff yet. Add your receptionist and doctors above.</div>';
+}
+$('staffList').addEventListener('click', async e => {
+  const btn = e.target.closest('button[data-act]'); if (!btn) return;
+  const email = btn.dataset.email, s = staffList.find(x => x.email === email); if (!s) return;
+  if (btn.dataset.act === 'reset') {
+    try {
+      await sendPasswordResetEmail(auth, email);
+      alert('Password reset email sent to ' + email + '.\nIt only arrives if this is a real email address.');
+    } catch (err) { alert('Could not send: ' + err.message); }
+  }
+  if (btn.dataset.act === 'remove') {
+    if (!confirm('Remove ' + (s.name || email) + '? They will no longer be able to use the staff pages.')) return;
+    try {
+      const b = writeBatch(db);
+      b.delete(doc(db, "staff", email));
+      if (s.role === 'doctor' && s.doctor) b.delete(doc(db, "doctors", slug(s.doctor)));
+      await b.commit();
+    } catch (err) { alert('Could not remove: ' + err.message); }
   }
 });
 
@@ -286,35 +476,37 @@ async function setStatus(id, status) {
 // ---------- Patient ----------
 $('bookForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const form = e.target;
+  const form = e.target, m = $('bMsg');
+  if (!$('bDoctor').value) { say(m, 'Please choose a doctor.', false); return; }
   const id = newCode();
   const a = {
     name: $('bName').value.trim(), phone: $('bPhone').value.trim(),
     doctor: $('bDoctor').value, date: $('bDate').value, time: $('bTime').value,
     reason: $('bReason').value.trim(), status: 'Pending', notes: [], createdAt: Date.now()
   };
-  $('bMsg').style.color = 'var(--muted)';
-  $('bMsg').textContent = 'Saving…';
-  try {
-    const b = writeBatch(db);
-    b.set(doc(db, "appointments", id), a);
-    b.set(slotRef(a), { apptId: id });   // fails if the slot is already taken
-    await Promise.race([
-      b.commit(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000))
-    ]);
-  } catch (err) {
-    $('bMsg').style.color = 'var(--bad)';
-    $('bMsg').textContent = err.message === 'timeout'
-      ? 'No answer from the database after 15 seconds. Check your internet and try again.'
-      : err.code === 'permission-denied'
-        ? 'Not allowed (permission denied). Either that time is taken, or the database rules need checking.'
-        : 'Could not save: ' + err.message;
-    return;
-  }
+  say(m, 'Saving…', true);
+  const b = writeBatch(db);
+  b.set(doc(db, "appointments", id), a);
+  b.set(slotRef(a), { apptId: id });   // fails if the slot is already taken
+  const done = b.commit().then(() => null, err => err);
+  const first = await Promise.race([done, new Promise(r => setTimeout(() => r('slow'), 6000))]);
+  const failText = err => err.code === 'permission-denied'
+    ? 'That time is already taken, or not allowed. Please choose another time.'
+    : 'Could not save: ' + err.message;
+  if (first && first !== 'slow') { say(m, failText(first), false); return; }
   addCode(id);
-  $('bMsg').style.color = 'var(--ok)';
-  $('bMsg').innerHTML = `Request sent! Your booking code is <span class="code">${id}</span>. Save it (take a screenshot). You need it to see or cancel your appointment.`;
+  if (first === 'slow') {
+    // no internet: the booking is saved on this phone and sent later
+    m.style.color = 'var(--warn)';
+    m.innerHTML = `Saved on this phone. It will be sent when the internet is back. Your booking code is <span class="code">${id}</span>. Save it.`;
+    done.then(err => {
+      if (err) { removeCode(id); alert('Your booking ' + id + ' could not be saved. ' + failText(err)); }
+      else { m.style.color = 'var(--ok)'; m.innerHTML = `Request sent! Your booking code is <span class="code">${id}</span>.`; }
+    });
+  } else {
+    m.style.color = 'var(--ok)';
+    m.innerHTML = `Request sent! Your booking code is <span class="code">${id}</span>. Save it (take a screenshot). You need it to see or cancel your appointment.`;
+  }
   form.reset();
 });
 
@@ -369,17 +561,16 @@ $('helpForm').addEventListener('submit', async e => {
   e.preventDefault();
   const form = e.target;
   try {
-    await addDoc(helpCol, {
-      name: $('hName').value.trim(), phone: $('hPhone').value.trim(), text: $('hText').value.trim(),
-      resolved: false, time: new Date().toLocaleString(), createdAt: Date.now()
-    });
+    await Promise.race([
+      addDoc(helpCol, {
+        name: $('hName').value.trim(), phone: $('hPhone').value.trim(), text: $('hText').value.trim(),
+        resolved: false, time: new Date().toLocaleString(), createdAt: Date.now()
+      }),
+      new Promise(r => setTimeout(r, 6000))
+    ]);
     form.reset();
-    $('hMsg').style.color = 'var(--ok)';
-    $('hMsg').textContent = 'Your request was sent. We will contact you soon.';
-  } catch (err) {
-    $('hMsg').style.color = 'var(--bad)';
-    $('hMsg').textContent = 'Could not send: ' + err.message;
-  }
+    say($('hMsg'), navigator.onLine ? 'Your request was sent. We will contact you soon.' : 'Saved on this phone. It will be sent when the internet is back.', true);
+  } catch (err) { say($('hMsg'), 'Could not send: ' + err.message, false); }
 });
 
 // ---------- Receptionist ----------
@@ -402,7 +593,7 @@ async function reschedule(id) {
 }
 
 function renderReception() {
-  if (!me || me.role !== 'receptionist') return;
+  if (!me || !['admin', 'receptionist'].includes(me.role)) return;
   const fd = $('fDate').value, fs = $('fStatus').value;
   const list = sortAppts(appts.filter(a => (!fd || a.date === fd) && (!fs || a.status === fs)));
   $('schedule').innerHTML = list.length ? list.map(a => `
@@ -462,7 +653,8 @@ function renderDoctor() {
 
 // ---------- Render ----------
 function render() {
-  renderPatient(); renderReception();
+  if (user && !me) $('setupInfo').textContent = 'You are signed in as ' + user.email + '. This login has no staff access yet. If you are the owner, enter the setup code once. Otherwise ask the owner to add your email under Staff.';
+  renderPatient(); renderReception(); renderAdmin();
   // don't wipe a note the doctor is typing when another update arrives
   if (!document.activeElement || !document.activeElement.id.startsWith('note-')) renderDoctor();
 }
@@ -471,6 +663,11 @@ function render() {
 Object.assign(window, { cancelAppt, setStatus, reschedule, resolveHelp, addNote, complete, removeCode });
 renderNav();
 render();
+
+// Offline support: keeps the app files on the phone
+if ('serviceWorker' in navigator) {
+  addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
 </script>
 </body>
 </html>
