@@ -46,6 +46,23 @@
   .note { background: #f0f6f8; border-left: 3px solid var(--primary); padding: 6px 10px; margin-top: 6px; font-size: .9rem; border-radius: 4px; }
   .empty { color: var(--muted); font-style: italic; }
   .msg { color: var(--ok); font-size: .9rem; margin-top: 8px; min-height: 1.2em; }
+  .toasts { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 50; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+  .toast { pointer-events: auto; background: #1d2733; color: #fff; padding: 10px 14px; border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.3); font-size: .9rem; border-left: 5px solid var(--ok); }
+  #alertBar { display: none; background: #e8f4f6; color: var(--primary-d); padding: 8px 12px; font-size: .85rem; text-align: center; }
+  #alertBar button { margin-left: 8px; }
+  .chat { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: #fafcfd; }
+  .msgs { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .bubble { max-width: 80%; padding: 6px 10px; border-radius: 10px; font-size: .9rem; background: #e9eef2; align-self: flex-start; word-break: break-word; }
+  .bubble.me { align-self: flex-end; background: var(--primary); color: #fff; }
+  .bubble .meta { color: inherit; opacity: .7; font-size: .7rem; margin-top: 2px; }
+  .chatbar { display: flex; gap: 6px; margin-top: 8px; }
+  .chatbar input { flex: 1; }
+  .chatbar .btn { margin: 0; }
+  .dot { background: var(--bad); color: #fff; border-radius: 99px; padding: 0 6px; margin-left: 4px; font-size: .7rem; }
+  .pic { max-width: 100%; border-radius: 8px; display: block; margin-bottom: 4px; cursor: zoom-in; }
+  .viewer { position: fixed; inset: 0; background: rgba(0,0,0,.92); z-index: 60; display: flex; align-items: center; justify-content: center; }
+  .viewer img { max-width: 100%; max-height: 100%; }
+  .attach { margin: 0; display: inline-block; cursor: pointer; color: #fff; }
   .code { font-family: monospace; font-size: 1.2rem; font-weight: 700; letter-spacing: 2px; background: #eef7f8; padding: 2px 8px; border-radius: 6px; }
 </style>
 </head>
@@ -56,6 +73,9 @@
   <nav id="nav"></nav>
 </header>
 <div id="net">You are offline. Your changes are saved on this phone and will be sent when the internet comes back.</div>
+
+<div id="alertBar">Get alerts for new bookings, messages and updates. <button class="btn small" id="alertBtn" type="button">Turn on alerts</button></div>
+<div class="toasts" id="toasts"></div>
 
 <main>
   <!-- PATIENT VIEW -->
@@ -71,10 +91,7 @@
           <div><label>Doctor</label><select id="bDoctor" required><option value="">Loading doctors…</option></select></div>
           <div><label>Date</label><input type="date" id="bDate" required></div>
         </div>
-        <div class="row">
-          <div><label>Time</label><input type="time" id="bTime" required></div>
-          <div><label>Reason for visit</label><input id="bReason" required maxlength="250"></div>
-        </div>
+        <div><label>Reason for visit</label><input id="bReason" required maxlength="250"></div>
         <button class="btn" type="submit">Book appointment</button>
         <div class="msg" id="bMsg"></div>
       </form>
@@ -200,12 +217,11 @@
     </div>
   </section>
 </main>
-
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {
   initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, getDoc, updateDoc, addDoc, arrayUnion, onSnapshot, writeBatch, query, where
+  collection, doc, getDoc, setDoc, updateDoc, addDoc, arrayUnion, onSnapshot, writeBatch, query, where
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword,
@@ -234,10 +250,9 @@ const helpCol = collection(db, "helpRequests");
 // ---------- Helpers ----------
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmt = a => `${a.date} at ${a.time}`;
-const sortAppts = list => [...list].sort((x, y) => (x.date + x.time).localeCompare(y.date + y.time));
+const fmt = a => a.time ? `${a.date} at ${a.time}` : a.date;
+const sortAppts = list => [...list].sort((x, y) => (x.date + (x.time || '')).localeCompare(y.date + (y.time || '')) || (x.createdAt || 0) - (y.createdAt || 0));
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
-const slotRef = a => doc(db, "slots", `${slug(a.doctor)}_${a.date}_${a.time}`);
 function newCode() {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   const r = crypto.getRandomValues(new Uint8Array(10));
@@ -255,7 +270,122 @@ $('bDate').min = new Date().toISOString().slice(0, 10);
 function net() { $('net').style.display = navigator.onLine ? 'none' : 'block'; }
 addEventListener('online', net); addEventListener('offline', net); net();
 
-// ---------- Doctor list (public, comes from the database) ----------
+// ---------- Alerts ----------
+function beep() {
+  try {
+    const c = new (window.AudioContext || window.webkitAudioContext)(), o = c.createOscillator(), g = c.createGain();
+    o.connect(g); g.connect(c.destination); o.frequency.value = 880; g.gain.value = .15; o.start();
+    setTimeout(() => { o.stop(); c.close(); }, 250);
+  } catch {}
+}
+function notify(title, body) {
+  const t = document.createElement('div'); t.className = 'toast';
+  t.innerHTML = `<strong>${esc(title)}</strong><div>${esc(body)}</div>`;
+  t.onclick = () => t.remove(); $('toasts').appendChild(t); setTimeout(() => t.remove(), 12000);
+  try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch {}
+  beep();
+  try {
+    if (document.hidden && 'Notification' in window && Notification.permission === 'granted' && navigator.serviceWorker)
+      navigator.serviceWorker.getRegistration().then(r => r && r.showNotification(title, { body, icon: 'icon-192.png' }));
+  } catch {}
+}
+function alertBar() { $('alertBar').style.display = ('Notification' in window && Notification.permission === 'default') ? 'block' : 'none'; }
+$('alertBtn').addEventListener('click', async () => { try { await Notification.requestPermission(); } catch {} alertBar(); });
+alertBar();
+
+// ---------- Chat (one chat per appointment) ----------
+const chats = {}, chatUnsubs = {}, chatInit = {}, chatOpen = new Set();
+const ck = (id, role) => (role === 'patient' ? 'p' : 's') + id;
+const lastRead = k => store.get('read_' + k, 0);
+const otherOf = role => role === 'patient' ? 'staff' : 'patient';
+function unread(id, role) {
+  const k = ck(id, role);
+  return (chats[k] || []).filter(m => m.from === otherOf(role) && m.at > lastRead(k)).length;
+}
+function markRead(id, role) {
+  const k = ck(id, role);
+  const mx = Math.max(0, ...(chats[k] || []).filter(m => m.from === otherOf(role)).map(m => m.at));
+  if (mx > lastRead(k)) store.set('read_' + k, mx);
+}
+function msgsHTML(id, role) {
+  const list = chats[ck(id, role)] || [], mine = role === 'patient' ? 'patient' : 'staff';
+  const link = t => t.replace(/https:\/\/meet\.jit\.si\/[A-Za-z0-9-]+/g, '<a href="$&" target="_blank" rel="noopener" style="color:inherit;font-weight:700;text-decoration:underline">Join video call</a>');
+  return list.length ? list.map(m => `<div class="bubble ${m.from === mine ? 'me' : ''}">${m.img ? `<img class="pic" src="${esc(m.img)}" onclick="viewImg(this.src)">` : ''}${m.text ? `<div>${link(esc(m.text))}</div>` : ''}<div class="meta">${esc(m.who || '')} · ${esc(new Date(m.at).toLocaleString())}</div></div>`).join('')
+    : '<div class="empty">No messages yet. Say hello 👋</div>';
+}
+function chatBox(id, role) {
+  const k = ck(id, role);
+  if (!chatOpen.has(k)) return '';
+  return `<div class="chat"><div class="msgs" id="msgs-${k}">${msgsHTML(id, role)}</div>
+    <div class="chatbar"><input id="chat-${k}" maxlength="500" placeholder="Type a message…" autocomplete="off"><button class="btn small" onclick="sendChat('${id}','${role}')">Send</button></div>
+    <div class="actions"><label class="btn small grey attach">📷 Photo<input type="file" accept="image/*" hidden onchange="sendPhoto('${id}','${role}',this)"></label>
+    <button class="btn small ok" onclick="sendVideo('${id}','${role}')">📹 Video call link</button></div></div>`;
+}
+function chatBtn(id, role) {
+  const n = unread(id, role);
+  return `<button class="btn small grey" onclick="toggleChat('${id}','${role}')">💬 Chat${n ? `<span class="dot">${n}</span>` : ''}</button>`;
+}
+function watchChat(id, role) {
+  const k = ck(id, role); if (chatUnsubs[k]) return;
+  chatUnsubs[k] = onSnapshot(collection(db, 'appointments', id, 'messages'), snap => {
+    chats[k] = snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => a.at - b.at);
+    const first = !chatInit[k]; chatInit[k] = true;
+    if (!first && !chatOpen.has(k)) snap.docChanges().forEach(c => {
+      const m = c.doc.data();
+      if (c.type === 'added' && m.from === otherOf(role)) notify('New message', `${m.who || (role === 'patient' ? 'Clinic' : 'Patient')}: ${m.text || '📷 Photo'}`);
+    });
+    if (chatOpen.has(k)) {
+      markRead(id, role);
+      const el = $('msgs-' + k); if (el) { el.innerHTML = msgsHTML(id, role); el.scrollTop = el.scrollHeight; }
+    } else render();
+  }, () => {});
+}
+function unwatchChat(k) { if (chatUnsubs[k]) { chatUnsubs[k](); delete chatUnsubs[k]; } delete chats[k]; delete chatInit[k]; chatOpen.delete(k); }
+function toggleChat(id, role) {
+  const k = ck(id, role);
+  if (chatOpen.has(k)) chatOpen.delete(k); else { chatOpen.add(k); markRead(id, role); }
+  render(true);
+}
+function post(id, role, extra) {
+  const who = role === 'patient' ? ((myData[id] && myData[id].name) || 'Patient') : ((me && me.name) || 'Clinic');
+  return addDoc(collection(db, 'appointments', id, 'messages'), { from: role === 'patient' ? 'patient' : 'staff', who, text: '', ...extra, at: Date.now() });
+}
+function sendChat(id, role) {
+  const inp = $('chat-' + ck(id, role)), text = inp.value.trim(); if (!text) return;
+  inp.value = '';
+  post(id, role, { text }).catch(err => alert('Message not sent: ' + err.message));
+}
+function sendVideo(id, role) {
+  post(id, role, { text: '📹 Video call: https://meet.jit.si/IsmailHealthCare-' + id }).catch(err => alert('Not sent: ' + err.message));
+  window.open('https://meet.jit.si/IsmailHealthCare-' + id, '_blank');
+}
+// Shrinks a photo so it is small enough to send
+function shrink(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      let w = im.width, h = im.height; const m = 800;
+      if (Math.max(w, h) > m) { const r = m / Math.max(w, h); w = Math.round(w * r); h = Math.round(h * r); }
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(im, 0, 0, w, h); URL.revokeObjectURL(url);
+      let q = .7, d = c.toDataURL('image/jpeg', q);
+      while (d.length > 180000 && q > .3) { q -= .1; d = c.toDataURL('image/jpeg', q); }
+      d.length > 180000 ? rej(new Error('This photo is too big.')) : res(d);
+    };
+    im.onerror = () => rej(new Error('Could not read this photo.'));
+    im.src = url;
+  });
+}
+async function sendPhoto(id, role, inp) {
+  const f = inp.files[0]; inp.value = ''; if (!f) return;
+  try { await post(id, role, { img: await shrink(f) }); }
+  catch (err) { alert('Photo not sent: ' + err.message); }
+}
+function viewImg(src) {
+  const o = document.createElement('div'); o.className = 'viewer';
+  o.innerHTML = '<img src="' + src + '">'; o.onclick = () => o.remove(); document.body.appendChild(o);
+}
+  // ---------- Doctor list (public, comes from the database) ----------
 onSnapshot(collection(db, "doctors"), snap => {
   const names = snap.docs.map(d => d.data().name).filter(Boolean).sort();
   const cur = $('bDoctor').value;
@@ -325,7 +455,10 @@ $('forgotBtn').addEventListener('click', async () => {
 
 // ---------- Who is logged in ----------
 let appts = [], helps = [], staffList = [], unsubs = [];
-function stop() { unsubs.forEach(u => u()); unsubs = []; appts = []; helps = []; staffList = []; }
+function stop() {
+  unsubs.forEach(u => u()); unsubs = []; appts = []; helps = []; staffList = [];
+  Object.keys(chatUnsubs).filter(k => k[0] === 's').forEach(unwatchChat);
+}
 
 async function loadMe(email) {
   const key = 'staff_' + email;
@@ -340,9 +473,24 @@ async function loadMe(email) {
   }
 }
 function start() {
+  const email = user.email.toLowerCase();
   const q = me.role === 'doctor' ? query(apptCol, where('doctor', '==', me.doctor)) : apptCol;
+  let first = true;
   unsubs.push(onSnapshot(q, snap => {
     appts = snap.docs.map(d => ({ notes: [], ...d.data(), id: d.id }));
+    if (first) {
+      const last = store.get('lastBook_' + email, 0);
+      const n = appts.filter(a => (a.createdAt || 0) > last && a.status === 'Pending').length;
+      if (n) notify('New bookings', n + ' new appointment' + (n > 1 ? 's' : '') + ' since you last opened the app.');
+    } else {
+      snap.docChanges().forEach(c => {
+        if (c.type === 'added' && !c.doc.metadata.hasPendingWrites) {
+          const d = c.doc.data(); notify('New booking', `${d.name} booked ${d.doctor} on ${d.date}.`);
+        }
+      });
+    }
+    first = false; store.set('lastBook_' + email, Date.now());
+    appts.forEach(a => watchChat(a.id, 'staff'));
     render();
   }, err => alert('Could not load appointments: ' + err.message)));
   if (me.role !== 'doctor') {
@@ -462,10 +610,7 @@ async function cancelAppt(id) {
   const a = appts.find(x => x.id === id) || myData[id];
   if (!a) return;
   try {
-    const b = writeBatch(db);
-    b.update(doc(db, "appointments", id), { status: 'Cancelled' });
-    b.delete(slotRef(a));   // free the time slot
-    await b.commit();
+    await updateDoc(doc(db, "appointments", id), { status: 'Cancelled' });
   } catch (err) { alert('Could not cancel: ' + err.message); }
 }
 async function setStatus(id, status) {
@@ -481,17 +626,14 @@ $('bookForm').addEventListener('submit', async e => {
   const id = newCode();
   const a = {
     name: $('bName').value.trim(), phone: $('bPhone').value.trim(),
-    doctor: $('bDoctor').value, date: $('bDate').value, time: $('bTime').value,
+    doctor: $('bDoctor').value, date: $('bDate').value, time: '',
     reason: $('bReason').value.trim(), status: 'Pending', notes: [], createdAt: Date.now()
   };
   say(m, 'Saving…', true);
-  const b = writeBatch(db);
-  b.set(doc(db, "appointments", id), a);
-  b.set(slotRef(a), { apptId: id });   // fails if the slot is already taken
-  const done = b.commit().then(() => null, err => err);
+  const done = setDoc(doc(db, "appointments", id), a).then(() => null, err => err);
   const first = await Promise.race([done, new Promise(r => setTimeout(() => r('slow'), 6000))]);
   const failText = err => err.code === 'permission-denied'
-    ? 'That time is already taken, or not allowed. Please choose another time.'
+    ? 'Not allowed. Please check your details and try again.'
     : 'Could not save: ' + err.message;
   if (first && first !== 'slow') { say(m, failText(first), false); return; }
   addCode(id);
@@ -517,8 +659,21 @@ const codeUnsubs = {};
 function watchCode(code) {
   if (codeUnsubs[code]) return;
   codeUnsubs[code] = onSnapshot(doc(db, "appointments", code),
-    s => { myData[code] = s.exists() ? { ...s.data(), id: s.id } : null; renderPatient(); },
-    () => { myData[code] = null; renderPatient(); });
+    s => {
+      const d = s.exists() ? { ...s.data(), id: s.id } : null;
+      myData[code] = d;
+      if (d) {
+        const key = 'seen_' + code, prev = store.get(key, null), n = (d.notes || []).length;
+        if (prev && !s.metadata.hasPendingWrites) {
+          if (prev.s !== d.status) notify('Appointment ' + (d.status === 'Confirmed' ? 'approved ✅' : d.status), `Your appointment with ${d.doctor} on ${d.date} is now ${d.status}.`);
+          if (n > prev.n) notify('Doctor added a note', `${d.doctor} added a note to your appointment. Open My appointments to read it.`);
+        }
+        if (!prev || prev.s !== d.status || prev.n !== n) store.set(key, { s: d.status, n });
+      }
+      render();
+    },
+    () => { myData[code] = null; render(); });
+  watchChat(code, 'patient');
 }
 function addCode(code) {
   if (!myCodes.includes(code)) { myCodes.push(code); store.set('myCodes', myCodes); }
@@ -526,9 +681,10 @@ function addCode(code) {
 }
 function removeCode(code) {
   if (codeUnsubs[code]) { codeUnsubs[code](); delete codeUnsubs[code]; }
+  unwatchChat(ck(code, 'patient'));
   delete myData[code];
   myCodes = myCodes.filter(c => c !== code); store.set('myCodes', myCodes);
-  renderPatient();
+  render();
 }
 myCodes.forEach(watchCode);
 
@@ -553,8 +709,9 @@ function renderPatient() {
       ${(a.notes && a.notes.length) ? `<div style="margin-top:8px"><strong style="font-size:.85rem">Doctor's notes</strong>${a.notes.map(n => `<div class="note">${esc(n.text)}<div class="meta">${esc(n.time)}</div></div>`).join('')}</div>` : ''}
       <div class="actions">
         ${['Pending', 'Confirmed'].includes(a.status) ? `<button class="btn small bad" onclick="cancelAppt('${code}')">Cancel</button>` : ''}
+        ${chatBtn(code, 'patient')}
         <button class="btn small grey" onclick="removeCode('${code}')">Hide</button>
-      </div></div>`;
+      </div>${chatBox(code, 'patient')}</div>`;
   }).join('');
 }
 
@@ -581,15 +738,9 @@ $('fStatus').addEventListener('input', renderReception);
 async function reschedule(id) {
   const a = appts.find(x => x.id === id); if (!a) return;
   const d = prompt('New date (YYYY-MM-DD):', a.date); if (!d) return;
-  const t = prompt('New time (HH:MM):', a.time); if (!t) return;
-  const updated = { ...a, date: d, time: t };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { alert('Please type the date like 2026-12-31'); return; }
   try {
-    if ((await getDoc(slotRef(updated))).exists()) { alert('That slot is already taken.'); return; }
-    const b = writeBatch(db);
-    b.update(doc(db, "appointments", id), { date: d, time: t });
-    b.delete(slotRef(a));
-    b.set(slotRef(updated), { apptId: id });
-    await b.commit();
+    await updateDoc(doc(db, "appointments", id), { date: d });
   } catch (err) { alert('Could not reschedule: ' + err.message); }
 }
 
@@ -607,7 +758,8 @@ function renderReception() {
         ${['Pending', 'Confirmed'].includes(a.status) ? `
           <button class="btn small grey" onclick="reschedule('${a.id}')">Reschedule</button>
           <button class="btn small bad" onclick="cancelAppt('${a.id}')">Cancel</button>` : ''}
-      </div>
+        ${chatBtn(a.id, 'staff')}
+      </div>${chatBox(a.id, 'staff')}
     </div>`).join('') : '<div class="empty">No appointments match.</div>';
 
   $('helpList').innerHTML = helps.length ? helps.map(h => `
@@ -648,20 +800,25 @@ function renderDoctor() {
       <div class="actions">
         <button class="btn small" onclick="addNote('${a.id}')">Save note</button>
         ${a.status !== 'Completed' ? `<button class="btn small ok" onclick="complete('${a.id}')">Mark completed</button>` : ''}
-      </div>
+        ${chatBtn(a.id, 'staff')}
+      </div>${chatBox(a.id, 'staff')}
     </div>`).join('') : '<div class="empty">No patients yet.</div>';
 }
 
 // ---------- Render ----------
-function render() {
+function render(force) {
   if (user && !me) $('setupInfo').textContent = 'You are signed in as ' + user.email + '. This login has no staff access yet. If you are the owner, enter the setup code once. Otherwise ask the owner to add your email under Staff.';
-  renderPatient(); renderReception(); renderAdmin();
-  // don't wipe a note the doctor is typing when another update arrives
-  if (!document.activeElement || !document.activeElement.id.startsWith('note-')) renderDoctor();
+  renderAdmin();
+  // don't wipe a note or message that is being typed when another update arrives
+  const typing = !force && document.activeElement && /^(note|chat)-/.test(document.activeElement.id);
+  if (!typing) {
+    renderPatient(); renderReception(); renderDoctor();
+    document.querySelectorAll('.msgs').forEach(e => { e.scrollTop = e.scrollHeight; });
+  }
 }
 
 // Module scripts aren't global, so expose handlers used by inline onclick attributes
-Object.assign(window, { cancelAppt, setStatus, reschedule, resolveHelp, addNote, complete, removeCode });
+Object.assign(window, { cancelAppt, setStatus, reschedule, resolveHelp, addNote, complete, removeCode, toggleChat, sendChat, sendVideo, sendPhoto, viewImg });
 renderNav();
 render();
 
