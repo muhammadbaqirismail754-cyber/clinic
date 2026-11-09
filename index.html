@@ -309,8 +309,7 @@ function markRead(id, role) {
 }
 function msgsHTML(id, role) {
   const list = chats[ck(id, role)] || [], mine = role === 'patient' ? 'patient' : 'staff';
-  const link = t => t.replace(/https:\/\/meet\.jit\.si\/[A-Za-z0-9-]+/g, '<a href="$&" target="_blank" rel="noopener" style="color:inherit;font-weight:700;text-decoration:underline">Join video call</a>');
-  return list.length ? list.map(m => `<div class="bubble ${m.from === mine ? 'me' : ''}">${m.img ? `<img class="pic" src="${esc(m.img)}" onclick="viewImg(this.src)">` : ''}${m.text ? `<div>${link(esc(m.text))}</div>` : ''}<div class="meta">${esc(m.who || '')} · ${esc(new Date(m.at).toLocaleString())}</div></div>`).join('')
+  return list.length ? list.map(m => `<div class="bubble ${m.from === mine ? 'me' : ''}">${m.img ? `<img class="pic" src="${esc(m.img)}" onclick="viewImg(this.src)">` : ''}${m.text ? `<div>${esc(m.text)}</div>` : ''}<div class="meta">${esc(m.who || '')} · ${esc(new Date(m.at).toLocaleString())}</div></div>`).join('')
     : '<div class="empty">No messages yet. Say hello 👋</div>';
 }
 function chatBox(id, role) {
@@ -319,7 +318,7 @@ function chatBox(id, role) {
   return `<div class="chat"><div class="msgs" id="msgs-${k}">${msgsHTML(id, role)}</div>
     <div class="chatbar"><input id="chat-${k}" maxlength="500" placeholder="Type a message…" autocomplete="off"><button class="btn small" onclick="sendChat('${id}','${role}')">Send</button></div>
     <div class="actions"><label class="btn small grey attach">📷 Photo<input type="file" accept="image/*" hidden onchange="sendPhoto('${id}','${role}',this)"></label>
-    <button class="btn small ok" onclick="sendVideo('${id}','${role}')">📹 Video call link</button></div></div>`;
+    ${(role === 'staff' || CLINIC_WA) ? `<button class="btn small ok" onclick="waCall('${id}','${role}')">📹 WhatsApp video</button>` : ''}</div></div>`;
 }
 function chatBtn(id, role) {
   const n = unread(id, role);
@@ -355,9 +354,18 @@ function sendChat(id, role) {
   inp.value = '';
   post(id, role, { text }).catch(err => alert('Message not sent: ' + err.message));
 }
-function sendVideo(id, role) {
-  post(id, role, { text: '📹 Video call: https://meet.jit.si/IsmailHealthCare-' + id }).catch(err => alert('Not sent: ' + err.message));
-  window.open('https://meet.jit.si/IsmailHealthCare-' + id, '_blank');
+// Opens a WhatsApp chat. Then tap the video-call icon inside WhatsApp.
+const CLINIC_WA = '03130630282';   // clinic WhatsApp number (patients use it to call the clinic)
+function waNumber(p) {
+  let d = String(p || '').replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('0')) d = '92' + d.slice(1);
+  return d;
+}
+function waCall(id, role) {
+  const num = role === 'patient' ? waNumber(CLINIC_WA) : waNumber((appts.find(x => x.id === id) || {}).phone);
+  if (!num) { alert('No WhatsApp number found.'); return; }
+  window.open('https://wa.me/' + num, '_blank');
 }
 // Shrinks a photo so it is small enough to send
 function shrink(file) {
@@ -818,7 +826,7 @@ function render(force) {
 }
 
 // Module scripts aren't global, so expose handlers used by inline onclick attributes
-Object.assign(window, { cancelAppt, setStatus, reschedule, resolveHelp, addNote, complete, removeCode, toggleChat, sendChat, sendVideo, sendPhoto, viewImg });
+Object.assign(window, { cancelAppt, setStatus, reschedule, resolveHelp, addNote, complete, removeCode, toggleChat, sendChat, waCall, sendPhoto, viewImg });
 renderNav();
 render();
 
